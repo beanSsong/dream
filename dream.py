@@ -33,33 +33,43 @@ def load_molecular_data():
 def leaderboard_CIDs():
     """Return CIDs for molecules that will be used for the leaderboard
     to determine the provisional leaders of the competition."""
-    with open('CID_leaderboard.txt') as f:
-        reader = csv.reader(f)
-        result = [int(line[0]) for line in reader]
-    return result
+    with open('dilution_leaderboard.txt') as f:
+        reader = csv.reader(f,delimiter='\t')
+        next(reader)
+        data = [[int(line[0]),line[1]] for line in reader]
+        for i,(CID,dilution) in enumerate(data):
+            data[i] = '%d_%g' % (CID,dilution2magnitude(dilution))
+    return sorted(data)
 
 def testset_CIDs():
     """Return CIDs for molecules that will be used for final testing
     to determine the winners of the competition."""
-    with open('CID_testset.txt') as f:
+    with open('dilution_testset.txt') as f:
         reader = csv.reader(f)
-        result = [int(line[0]) for line in reader]
-    return result
+        next(reader)
+        data = [[int(line[0]),line[1]] for line in reader]
+        for i,(CID,dilution) in enumerate(data):
+            data[i] = '%d_%g' % (CID,dilution2magnitude(dilution))
+    return sorted(data)
 
-def get_perceptual_matrices(perceptual_data,target_dilution):
+def get_perceptual_matrices(perceptual_data,target_dilution=-3):
     perceptual_matrices = {}
     CIDs = []
-    target_dilution = '1/1,000'
     for row in perceptual_data:
         CID = int(row[0])
         CIDs.append(CID)
-        dilution = row[4]
-        if dilution == target_dilution:
-            if CID not in perceptual_matrices:
-                perceptual_matrices[CID] = np.ones((49,21))*np.NaN
-            data = np.array([np.nan if _=='NaN' else int(_) for _ in row[6:]])
-            subject = int(row[5])
-            perceptual_matrices[CID][subject-1,:] = data
+        dilution = dilution2magnitude(row[4])
+        if target_dilution is None:
+            key = '%d_%g' % (CID,dilution)#1.0/int(dilution.split('/')[1].replace(',','')))
+        elif dilution == target_dilution:
+            key = '%d_%g' % (CID,dilution)
+        else:
+            continue
+        if key not in perceptual_matrices:
+            perceptual_matrices[key] = np.ones((49,21))*np.NaN
+        data = np.array([np.nan if _=='NaN' else int(_) for _ in row[6:]])
+        subject = int(row[5])
+        perceptual_matrices[key][subject-1,:] = data
                 
     return perceptual_matrices
 
@@ -97,7 +107,10 @@ def purge(this,from_that):
 def retain(this,in_that):
     in_that = {CID:value for CID,value in in_that.items() if CID in this}
     return in_that
-   
+
+def dilution2magnitude(dilution):
+    denom = dilution.replace('"','').replace("'","").split('/')[1].replace(',','')
+    return np.log10(1.0/float(denom))
 # Scoring for sub-challenge 1.
 
 # Scoring.  
