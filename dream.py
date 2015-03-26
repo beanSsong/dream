@@ -30,26 +30,20 @@ def load_molecular_data():
                 headers = line
     return headers,data
 
-def leaderboard_CIDs():
-    """Return CIDs for molecules that will be used for the leaderboard
-    to determine the provisional leaders of the competition."""
-    with open('dilution_leaderboard.txt') as f:
+def test_CIDs(kind):
+    assert kind in ['leaderboard','testset']
+    """Return CIDs for molecules that will be used for:
+        'leaderboard': the leaderboard to determine the provisional 
+                       leaders of the competition.
+        'testset': final testing to determine the winners 
+                   of the competition."""
+    with open('dilution_%s.txt' % kind) as f:
         reader = csv.reader(f,delimiter='\t')
         next(reader)
         data = [[int(line[0]),line[1]] for line in reader]
         for i,(CID,dilution) in enumerate(data):
-            data[i] = '%d_%g' % (CID,dilution2magnitude(dilution))
-    return sorted(data)
-
-def testset_CIDs():
-    """Return CIDs for molecules that will be used for final testing
-    to determine the winners of the competition."""
-    with open('dilution_testset.txt') as f:
-        reader = csv.reader(f)
-        next(reader)
-        data = [[int(line[0]),line[1]] for line in reader]
-        for i,(CID,dilution) in enumerate(data):
-            data[i] = '%d_%g' % (CID,dilution2magnitude(dilution))
+            mag = max(-3,dilution2magnitude(dilution))
+            data[i] = '%d_%g' % (CID,mag)
     return sorted(data)
 
 def get_perceptual_matrices(perceptual_data,target_dilution=-3):
