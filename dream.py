@@ -24,7 +24,7 @@ def load_molecular_data():
         reader = csv.reader(f, delimiter="\t")
         for line_num,line in enumerate(reader):
             if line_num > 0:
-                line[1:] = ['NaN' if x=='NaN' else float(x) for x in line[6:]]
+                line[1:] = ['NaN' if x=='NaN' else float(x) for x in line[1:]]
                 data.append(line)
             else:
                 headers = line
@@ -72,7 +72,7 @@ def get_molecular_vectors(molecular_data,CIDs):
     for row in molecular_data:
         CID = int(row[0])
         if CID in CIDs:
-            molecular_vectors[CID] = np.array([np.nan if _=='NaN' else int(_) for _ in row[1:]])
+            molecular_vectors[CID] = np.array([np.nan if _=='NaN' else float(_) for _ in row[1:]])
     return molecular_vectors
 
 def get_perceptual_vectors(perceptual_matrices,imputer=None,statistic='mean'):
@@ -164,6 +164,9 @@ def r2(kind,moment,predicted,observed):
     elif kind == 'dec':
         p = p[:,2:]
         o = o[:,2:]
+    elif kind in range(19):
+        p = p[:,2+kind]
+        o = o[:,2+kind]
     else:
         raise ValueError('No such kind: %s' % kind)
     
