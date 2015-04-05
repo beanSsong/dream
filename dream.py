@@ -78,8 +78,13 @@ def get_molecular_vectors(molecular_data,CIDs):
 def get_perceptual_vectors(perceptual_matrices,imputer=None,statistic='mean'):
     perceptual_vectors = {}
     for CID,matrix in perceptual_matrices.items():
+        matrix = matrix.copy()
         if imputer == 'zero':
             matrix[np.where(np.isnan(matrix))] = 0
+        elif imputer == 'mask':
+            mask = np.zeros(matrix.shape)
+            mask[np.where(np.isnan(matrix))] = 1
+            matrix = np.ma.array(matrix,mask=mask)
         elif imputer:
             matrix = imputer.fit_transform(matrix) # Impute the NaNs.  
         if statistic == 'mean':
@@ -167,6 +172,9 @@ def r2(kind,moment,predicted,observed):
     elif kind in range(19):
         p = p[:,2+kind]
         o = o[:,2+kind]
+    elif kind is None:
+        p = p
+        o = o
     else:
         raise ValueError('No such kind: %s' % kind)
     
