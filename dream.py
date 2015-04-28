@@ -1,64 +1,82 @@
-import csv
-import ast
 import numpy as np
 import types
-from scipy.stats import pearsonr
+from collections import OrderedDict
+from sklearn.preprocessing import Imputer
 
-def load_perceptual_data():
-    data = []
-    with open('TrainSet.txt') as f:
-        reader = csv.reader(f, delimiter="\t")
-        for line_num,line in enumerate(reader):
-            if line_num > 0:
-                line[0:6] = [x.strip() for x in line[0:6]]
-                line[2] = True if line[2]=='replicate' else False
-                line[6:] = ['NaN' if x=='NaN' else int(x) for x in line[6:]]
-                data.append(line)
-            else:
-                headers = line
-    return headers,data
+import loading
 
-def load_molecular_data():
-    data = []
-    with open('molecular_descriptors_data.txt') as f:
-        reader = csv.reader(f, delimiter="\t")
-        for line_num,line in enumerate(reader):
-            if line_num > 0:
-                line[1:] = ['NaN' if x=='NaN' else float(x) for x in line[1:]]
-                data.append(line)
-            else:
-                headers = line
-    return headers,data
+#############################
+# Perceptual processing (Y) #
+#############################
 
-def test_CIDs(kind):
-    assert kind in ['leaderboard','testset']
-    """Return CIDs for molecules that will be used for:
-        'leaderboard': the leaderboard to determine the provisional 
-                       leaders of the competition.
-        'testset': final testing to determine the winners 
-                   of the competition."""
-    with open('dilution_%s.txt' % kind) as f:
-        reader = csv.reader(f,delimiter='\t')
-        next(reader)
-        data = [[int(line[0]),line[1]] for line in reader]
-        for i,(CID,dilution) in enumerate(data):
-            mag = max(-3,dilution2magnitude(dilution))
-            data[i] = '%d_%g' % (CID,mag)
-    return sorted(data)
+def make_Y_obs(kinds, target_dilution=None, imputer=None):
+    if type(kinds) is str:
+        kinds = [kinds]
+    if imputer in [None,'median']:
+        imputer = Imputer(missing_values=np.nan,strategy='median',axis=0)
+    print("Getting CIDs and dilutions...")
+    CID_dilutions = []
+    Y = {}
+    for kind in kinds:
+        assert kind in ['training','leaderboard','testset'], \
+            "No such kind %s" % kind
+        print("Getting CIDs and dilutions for %s data" % kind)
+        CID_dilutions += loading.get_CID_dilutions(kind,
+                                                   target_dilution=target_dilution)
+        if kind == 'training':
+            _, perceptual_data = loading.load_perceptual_data()
+            print("Getting basic perceptual data...")
+            matrices = get_perceptual_matrices(perceptual_data,
+                                               target_dilution=target_dilution)
+            print("Flattening into vectors...")
+            v_mean = get_perceptual_vectors(matrices, imputer=imputer, 
+                                               statistic='mean', 
+                                               target_dilution=target_dilution)
+            v_std = get_perceptual_vectors(matrices, imputer=imputer, 
+                                              statistic='std', 
+                                              target_dilution=target_dilution)
+            v_subject = get_perceptual_vectors(matrices, imputer='mask', 
+                                                  statistic=None, 
+                                                  target_dilution=target_dilution)
+            print("Assembling into matrices...")
+            Y[kind] = build_Y_obs(v_mean,v_std,v_subject)
+        elif kind == 'leaderboard':
+            Y[kind] = loading.load_leaderboard_perceptual_data(target_dilution=target_dilution)
 
-def get_perceptual_matrices(perceptual_data,target_dilution=-3):
+    print("Combining Y matrices...")
+    Y_ = {'subject':{}}
+    Y_['mean_std'] = np.vstack([Y[kind]['mean_std'] for kind in 
+                                ['training','leaderboard','testset'] \
+                                if kind in kinds])
+    for subject in range(1,50):
+        Y_['subject'][subject] = np.vstack([Y[kind]['subject'][subject] for kind in 
+                                ['training','leaderboard','testset'] \
+                                if kind in kinds])
+    print("The Y['mean_std'] matrix now has shape (%dx%d) " % Y_['mean_std'].shape +\
+          "molecules by 2 x perceptual descriptors")
+    print("The Y['subject'] dict now has %d matrices of shape (%dx%d) " % \
+          (len(Y_['subject']),Y_['subject'][1].shape[0],Y_['subject'][1].shape[1]) +\
+          "molecules by perceptual descriptors, one for each subject")
+    return Y_,imputer
+
+def get_perceptual_matrices(perceptual_data,target_dilution=None):
     perceptual_matrices = {}
     CIDs = []
     for row in perceptual_data:
         CID = int(row[0])
         CIDs.append(CID)
-        dilution = dilution2magnitude(row[4])
+        dilution = loading.dilution2magnitude(row[4])
         if target_dilution is None:
-            key = '%d_%g' % (CID,dilution)#1.0/int(dilution.split('/')[1].replace(',','')))
+            pass
         elif dilution == target_dilution:
-            key = '%d_%g' % (CID,dilution)
+            pass
+        elif target_dilution in ['low','high']:
+            if row[3] != target_dilution:
+                continue
         else:
             continue
+        high = row[3] == 'high'
+        key = '%d_%g_%d' % (CID,dilution,high)
         if key not in perceptual_matrices:
             perceptual_matrices[key] = np.ones((49,21))*np.NaN
         data = np.array([np.nan if _=='NaN' else int(_) for _ in row[6:]])
@@ -67,20 +85,24 @@ def get_perceptual_matrices(perceptual_data,target_dilution=-3):
                 
     return perceptual_matrices
 
-def get_molecular_vectors(molecular_data,CIDs):
-    molecular_vectors = {}
-    for row in molecular_data:
-        CID = int(row[0])
-        if CID in CIDs:
-            molecular_vectors[CID] = np.array([np.nan if _=='NaN' else float(_) for _ in row[1:]])
-    return molecular_vectors
-
-def get_perceptual_vectors(perceptual_matrices,imputer=None,statistic='mean'):
+def get_perceptual_vectors(perceptual_matrices, imputer=None, statistic='mean',
+                           target_dilution=None):
     perceptual_vectors = {}
-    for CID,matrix in perceptual_matrices.items():
+    for CID_dilution,matrix in perceptual_matrices.items():
+        CID,dilution,high = CID_dilution.split('_')
+        if target_dilution is None:
+            pass
+        elif target_dilution is 'low' and int(high)==1:
+            continue
+        elif target_dilution is 'high' and int(high)==0:
+            continue
+        elif type(target_dilution) is int \
+            and target_dilution != int(dilution):
+            continue
         matrix = matrix.copy()
         if imputer == 'zero':
-            matrix[np.where(np.isnan(matrix))] = 0
+            matrix[:,1][np.where(np.isnan(matrix[:,1]))] = 50 # Zero for pleasantness is 50.  
+            matrix[:,2:][np.where(np.isnan(matrix[:,2:]))] = 0 # Zero for everything else is 0.  
         elif imputer == 'mask':
             mask = np.zeros(matrix.shape)
             mask[np.where(np.isnan(matrix))] = 1
@@ -88,16 +110,155 @@ def get_perceptual_vectors(perceptual_matrices,imputer=None,statistic='mean'):
         elif imputer:
             matrix = imputer.fit_transform(matrix) # Impute the NaNs.  
         if statistic == 'mean':
-            perceptual_vectors[CID] = matrix.mean(axis=0)
+            perceptual_vectors[CID_dilution] = matrix.mean(axis=0)
         elif statistic == 'std':
-            perceptual_vectors[CID] = matrix.std(axis=0)
+            perceptual_vectors[CID_dilution] = matrix.std(axis=0,ddof=1)
         elif statistic is None:
-            perceptual_vectors[CID] = {}
+            perceptual_vectors[CID_dilution] = {}
             for subject in range(1,matrix.shape[0]+1):        
-                perceptual_vectors[CID][subject] = matrix[subject-1]
+                perceptual_vectors[CID_dilution][subject] = matrix[subject-1]
         else:
             raise Exception("Statistic '%s' not recognized" % statistic)
     return perceptual_vectors
+
+def build_Y_obs(mean_vectors,std_vectors,subject_vectors):
+    Y = {'subject':{}}
+    for kind,vectors in [('mean',mean_vectors),
+                         ('std',std_vectors)]:
+        Y[kind] = np.vstack([vectors[CID] for CID in sorted(vectors)])
+    for subject in range(1,50):
+        Y['subject'][subject] = np.vstack([subject_vectors[CID][subject]
+                                               for CID in sorted(subject_vectors)])
+    print("Y_obs['subject'] contains %d matrices each with shape (%dx%d) (molecules by perceptual descriptors)" \
+      % (len(Y['subject']),Y['subject'][1].shape[0],Y['subject'][1].shape[1]))
+    print("The Y_obs['mean'] matrix has shape (%dx%d) (molecules by perceptual descriptors)" % Y['mean'].shape)
+    Y['mean_std'] = np.hstack((Y['mean'],Y['std']))
+    print("The Y_obs['mean_std'] matrix has shape (%dx%d) (molecules by 2 x perceptual descriptors)" % Y['mean_std'].shape)
+    return Y
+
+def nan_summary(perceptual_obs_matrices):
+    z = np.dstack(perceptual_obs_matrices.values())
+
+    nonzero_nonans,nonzero_nans,zero_nonans,zero_nonzero,zero_nans = 0,0,0,0,0
+    for subject in range(49):
+        for molecule in range(676):
+            if z[subject,0,molecule]:
+                nonzero_nonans += np.isnan(z[subject,1:,molecule]).sum()==0
+                nonzero_nans += np.isnan(z[subject,1:,molecule]).sum()==20
+            else:
+                zero_nonans += np.isnan(z[subject,1:,molecule]).sum()==0
+                zero_nonzero += z[subject,1:,molecule].max()>0
+                zero_nans += np.isnan(z[subject,1:,molecule]).sum()==20
+    print(nonzero_nonans,nonzero_nans,zero_nonans,zero_nonzero,zero_nans)
+
+############################
+# Molecular processing (X) #
+############################
+
+def make_X(molecular_data,kinds,target_dilution=None,
+           good1=None,good2=None,means=None,stds=None):
+    if type(kinds) is str:
+        kinds = [kinds]
+    print("Getting CIDs and dilutions...")
+    CID_dilutions = []
+    for kind in kinds:
+        assert kind in ['training','leaderboard','testset'], \
+            "No such kind %s" % kind
+        CID_dilutions += loading.get_CID_dilutions(kind,target_dilution=target_dilution)
+    print("Getting basic molecular data...")
+    molecular_vectors = get_molecular_vectors(molecular_data,CID_dilutions)
+    print("Adding dilution data...")
+    molecular_vectors = add_dilutions(molecular_vectors,CID_dilutions)
+    print("Building a matrix...")
+    X = build_X(molecular_vectors)
+    print("Purging data with too many NaNs...")
+    X,good1 = purge1_X(X,good_molecular_descriptors=good1)
+    print("Imputing remaining NaN data...")
+    X,imputer = impute_X(X)
+    print("Purging data that is still bad, if any...")
+    X,good2 = purge2_X(X,good_molecular_descriptors=good2)
+    print("Normalizing data for fitting...")
+    X,means,stds = normalize_X(X,means=means,stds=stds,target_dilution=target_dilution)
+    print("The X matrix now has shape (%dx%d) molecules by " % X.shape +\
+          "non-NaN good molecular descriptors")
+    return X,good1,good2,means,stds,imputer
+
+def get_molecular_vectors(molecular_data,CID_dilutions):
+    CIDs = []
+    for CID_dilution in CID_dilutions:
+        CID,dilution,high = CID_dilution.split('_')
+        CIDs.append(int(CID)) 
+    molecular_vectors = {}
+    for row in molecular_data:
+        CID = int(row[0])
+        if CID in CIDs:
+            molecular_vectors[CID] = np.array([np.nan if _=='NaN' else float(_) for _ in row[1:]])
+    return molecular_vectors
+
+def add_dilutions(molecular_vectors,CID_dilutions,dilution=None):
+    if dilution in [None,'low','high']:
+        molecular_vectors_ = {}
+        for CID_dilution in CID_dilutions:
+            CID,dilution,high = CID_dilution.split('_')
+            molecular_vectors_[CID_dilution] = np.concatenate((molecular_vectors[int(CID)],[int(dilution),int(high)]))
+        molecular_vectors = molecular_vectors_
+        print('There are now %d molecular vectors of length %d, one for each molecule and dilution' \
+            % (len(molecular_vectors),len(molecular_vectors[CID_dilution])))
+    return molecular_vectors
+
+# Build the X_obs matrix out of molecular descriptors.  
+def build_X(molecular_vectors):
+    X = np.vstack([molecular_vectors[key] for key in sorted(molecular_vectors)]) # Key could be CID or CID_dilution.  
+    print("The X matrix has shape (%dx%d) (molecules by molecular descriptors)" % X.shape)
+    return X
+
+def purge1_X(X,good_molecular_descriptors=None):
+    if good_molecular_descriptors is None:
+        good_molecular_descriptors = range(X.shape[1])
+        threshold = 0.25
+        # Which columns of X (which molecular descriptors) have NaNs for at least 'threshold' fraction of the molecules?  
+        nan_molecular_descriptors = np.where(np.isnan(X).sum(axis=0) > X.shape[0]*threshold)[0] # At least 'threshold' NaNs.  
+        # Purge these bad descriptors from the X matrix.  
+        good_molecular_descriptors = list(set(range(X.shape[1])).difference(nan_molecular_descriptors))
+    X = X[:,good_molecular_descriptors]
+    print("The X matrix has shape (%dx%d) (molecules by good molecular descriptors)" % X.shape)
+    return X,good_molecular_descriptors
+
+def impute_X(X):
+    # The X_obs matrix (molecular descriptors) still has NaN values which need to be imputed.  
+    imputer = Imputer(missing_values=np.nan,strategy='median',axis=0)
+    X = imputer.fit_transform(X)
+    print("The X matrix now has shape (%dx%d) (molecules by non-NaN good molecular descriptors)" % X.shape)
+    return X,imputer
+
+def purge2_X(X,good_molecular_descriptors=None):
+    if good_molecular_descriptors is None:
+        good_molecular_descriptors = range(X.shape[1])
+        zero_molecular_descriptors = np.where(np.abs(np.sum(X,axis=0))==0)[0] # All zeroes.  
+        invariant_molecular_descriptors = np.where(np.std(X,axis=0)==0)[0] # Same value for all molecules.  
+        bad_molecular_descriptors = set(zero_molecular_descriptors).union(invariant_molecular_descriptors) # Both of the above.  
+        # Purge these bad descriptors from the X matrix.  
+        good_molecular_descriptors = list(set(good_molecular_descriptors).difference(bad_molecular_descriptors))
+    X = X[:,good_molecular_descriptors]
+    print("The X matrix has shape (%dx%d) (molecules by good molecular descriptors)" % X.shape)
+    return X,good_molecular_descriptors
+
+def normalize_X(X,means=None,stds=None,target_dilution=None):#,logs=None):
+    num_cols = X.shape[1]
+    if target_dilution in [None,'low','high']:
+        num_cols -= 2
+    X[:,:num_cols] = np.sign(X[:,:num_cols])*np.abs(X[:,:num_cols])**(1.0/3)
+    if means is None:
+        means = np.mean(X,axis=0)
+    if stds is None:
+        stds = np.std(X,axis=0)
+    X[:,:num_cols] -= means[np.newaxis,:num_cols]
+    X[:,:num_cols] /= stds[np.newaxis,:num_cols]
+    return X,means,stds
+
+#############
+# Utilities #
+#############
 
 def purge(this,from_that):
     from_that = {CID:value for CID,value in from_that.items() if CID not in this}
@@ -106,121 +267,3 @@ def purge(this,from_that):
 def retain(this,in_that):
     in_that = {CID:value for CID,value in in_that.items() if CID in this}
     return in_that
-
-def dilution2magnitude(dilution):
-    denom = dilution.replace('"','').replace("'","").split('/')[1].replace(',','')
-    return np.log10(1.0/float(denom))
-# Scoring for sub-challenge 1.
-
-# Scoring.  
-
-def r(kind,predicted,observed,n_subjects=49):
-    # Predicted and observed should each be an array of 
-    # molecules by perceptual descriptors by subjects
-    
-    r = 0.0
-    for subject in range(n_subjects):
-        p = predicted[:,:,subject]
-        o = observed[:,:,subject]
-        r += r2(kind,None,p,o)
-    r /= n_subjects
-    return r
-
-def score(predicted,actual,n_subjects=49):
-    """Final score for sub-challenge 1."""
-    score = z('int',predicted,actual,n_subjects=n_subjects) \
-          + z('ple',predicted,actual,n_subjects=n_subjects) \
-          + z('dec',predicted,actual,n_subjects=n_subjects)
-    return score/3.0
-
-def z(kind,predicted,actual,n_subjects=49): 
-    sigmas = {'int': 0.0187,
-              'ple': 0.0176,
-              'dec': 0.0042}
-
-    sigma = sigmas[kind]
-    shuffled_r = 0#r2(kind,predicted,shuffled)
-    actual_r = r(kind,predicted,actual,n_subjects=n_subjects)
-    return (actual_r - shuffled_r)/sigma
-
-# Scoring for sub-challenge 2.  
-
-def r2(kind,moment,predicted,observed):
-    # Predicted and observed should each be an array of 
-    # molecules by 2*perceptual descriptors (means then stds)
-    if moment == 'mean':
-        p = predicted[:,:21]
-        o = observed[:,:21]
-    elif moment == 'sigma':
-        p = predicted[:,21:]
-        o = observed[:,21:]
-    elif moment is None:
-        p = predicted
-        o = observed
-    else:
-        raise ValueError('No such moment: %s' % moment)
-    
-    if kind=='int':
-        p = p[:,0]
-        o = o[:,0]
-    elif kind=='ple':
-        p = p[:,1]
-        o = o[:,1]
-    elif kind == 'dec':
-        p = p[:,2:]
-        o = o[:,2:]
-    elif kind in range(19):
-        p = p[:,2+kind]
-        o = o[:,2+kind]
-    elif kind is None:
-        p = p
-        o = o
-    else:
-        raise ValueError('No such kind: %s' % kind)
-    
-    if len(p.shape)==1:
-        r = pearsonr(p,o)[0]
-    else:
-        r = 0.0
-        cols = p.shape[1]
-        denom = 0.0
-        for i in range(cols):
-            p_ = p[:,i]
-            o_ = o[:,i]
-            r_ = pearsonr(p_,o_)[0]
-            if np.isnan(r_):
-                if np.std(p_)*np.std(o_) != 0:
-                    print('WTF')
-            else:
-                r += r_
-                denom += 1
-        r /= denom
-    return r
-
-def score2(predicted,actual):
-    """Final score for sub-challenge 2."""
-    score = z2('int','mean',predicted,actual) \
-          + z2('ple','mean',predicted,actual) \
-          + z2('dec','mean',predicted,actual) \
-          + z2('int','sigma',predicted,actual) \
-          + z2('ple','sigma',predicted,actual) \
-          + z2('dec','sigma',predicted,actual)
-    return score/6.0
-
-def z2(kind,moment,predicted,actual): 
-    sigmas = {'int_mean': 0.1193,
-              'ple_mean': 0.1265,
-              'dec_mean': 0.0265,
-              'int_sigma': 0.1194,
-              'ple_sigma': 0.1149,
-              'dec_sigma': 0.0281}
-
-    sigma = sigmas[kind+'_'+moment]
-    shuffled_r = 0#r2(kind,predicted,shuffled)
-    actual_r = r2(kind,moment,predicted,actual)
-    return (actual_r - shuffled_r)/sigma
-
-def scorer2(estimator,inputs,actual):
-    predicted = estimator.predict(inputs)
-    return score2(predicted,actual)
-
