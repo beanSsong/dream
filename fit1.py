@@ -59,8 +59,9 @@ def rfc_final(X,Y,
         predicted[subject][:,2:] = predictions['dec'][subject][:,2:]
 
     # Regularize:  
-    predicted_stack = np.dstack(predicted)
-    print(predicted_stack.shape)
+    predicted_stack = np.zeros((predicted[1].shape[0],predicted[1].shape[1],49))
+    for subject in range(1,50):
+        predicted_stack[:,:,subject-1] = predicted[subject]
     predicted_mean = predicted_stack.mean(axis=2,keepdims=True)
     predicted_reg = {kind:predicted.copy() for kind in kinds}
     for i,kind in enumerate(kinds):
@@ -70,7 +71,9 @@ def rfc_final(X,Y,
     predicted_stack[:,2:,:] = predicted_reg['dec'][:,2:,:]
     predicted = predicted_stack
 
-    observed = Y_test
+    observed = predicted.copy()
+    for subject in range(1,50):
+        observed[:,:,subject-1] = Y_test[subject]
     score = scoring.score(predicted,observed)
     rs = {}
     predictions = {}
@@ -80,7 +83,7 @@ def rfc_final(X,Y,
     print("For subchallenge 1:")
     print("\tScore = %.2f" % score)
     for kind in kinds:
-        print("\t%s = %.3f" % (kind,rs[kinds]))
+        print("\t%s = %.3f" % (kind,rs[kind]))
     
     return (rfcs,score,rs)
 

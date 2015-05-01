@@ -68,7 +68,8 @@ def rfc_final(X,Y_imp,Y_mask,
         rs[kind] = {}
         for moment in ['mean','sigma']:
             rs[kind][moment] = scoring.r2(kind,moment,predicted,observed)
-    
+    rs['int']['trans'] = scoring.r2(None,None,f_int(predicted[:,0]),observed[:,0])
+
     print("For subchallenge 2:")
     print("\tScore = %.2f" % score)
     for kind in ['int','ple','dec']:
