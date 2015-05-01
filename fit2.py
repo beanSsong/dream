@@ -1,5 +1,6 @@
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor,ExtraTreesRegressor
+from sklearn.cross_validation import ShuffleSplit,cross_val_score
 
 import scoring
 
@@ -38,6 +39,53 @@ def rfc_(X_train,Y_train,X_test_int,X_test_other,Y_test,max_features=1500,n_esti
         scores[phase] = (score,r_int,r_ple,r_dec,r_int_sig,r_ple_sig,r_dec_sig)
 
     return rfc,scores['train'],scores['test']
+
+# Show that random forest regression also works really well out of sample.  
+def rfc_cv(X,Y,n_splits=10,max_features=1500,n_estimators=100,min_samples_leaf=1,rfc=True):
+    if rfc:
+        rfc = RandomForestRegressor(max_features=max_features,
+                                n_estimators=n_estimators,
+                                max_depth=None,
+                                min_samples_leaf=min_samples_leaf,
+                                oob_score=False,n_jobs=-1,random_state=0)
+    else:
+        rfc = ExtraTreesRegressor(max_features=max_features,
+                                n_estimators=n_estimators,
+                                max_depth=None,
+                                min_samples_leaf=min_samples_leaf,
+                                  oob_score=False,n_jobs=-1,random_state=0)
+    test_size = 0.2
+    shuffle_split = ShuffleSplit(len(Y),n_splits,test_size=test_size)
+    test_size *= len(Y)
+    rs = {'int':{'mean':[],'sigma':[],'trans':[]},'ple':{'mean':[],'sigma':[]},'dec':{'mean':[],'sigma':[]}}
+    scores = []
+    for train_index,test_index in shuffle_split:
+        rfc.fit(X[train_index],Y[train_index])
+        predicted = rfc.predict(X[test_index])
+        observed = Y[test_index]
+        score = scoring.score2(predicted,observed)
+        scores.append(score)
+        for kind1 in ['int','ple','dec']:
+            for kind2 in ['mean','sigma']:
+                if kind2 in rs[kind1]:
+                    rs[kind1][kind2].append(scoring.r2(kind1,kind2,predicted,observed))
+        rs['int']['trans'].append(scoring.r2(None,None,f_int(predicted[:,0]),observed[:,21]))
+    for kind1 in ['int','ple','dec']:
+        for kind2 in ['mean','sigma','trans']:
+            if kind2 in rs[kind1]:
+                rs[kind1][kind2] = {'mean':np.mean(rs[kind1][kind2]),'sem':np.std(rs[kind1][kind2])/np.sqrt(n_splits)}
+    scores = {'mean':np.mean(scores),'sem':np.std(scores)/np.sqrt(n_splits)}
+    print("For subchallenge 2, using cross-validation with at most %d features:" % max_features)
+    print("\tscore = %.2f+/- %.2f" % (scores['mean'],scores['sem']))
+    for kind2 in ['mean','sigma','trans']:
+        for kind1 in ['int','ple','dec']:
+            if kind2 in rs[kind1]:
+                print("\t%s_%s = %.2f+/- %.2f" % (kind1,kind2,rs[kind1][kind2]['mean'],rs[kind1][kind2]['sem']))
+        
+    return scores,rs
+
+def f_int(x, k0=0.718, k1=1.08):
+    return 100*(k0*(x/100)**(k1*0.5) - k0*(x/100)**(k1*2))
 
 def scan(X_train,Y_train,X_test_int,X_test_other,Y_test,max_features=None,n_estimators=100):
     rfcs_max_features = {}
