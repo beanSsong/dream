@@ -67,4 +67,5 @@ Y_training,imputer = dream.make_Y_obs('training',target_dilution=None,imputer='m
 
 Y_leaderboard,imputer = dream.make_Y_obs('leaderboard',target_dilution='gold',imputer='mask')
 
-Y_all,imputer = dream.make_Y_obs(['training','leaderboard'],target_dilution=None,imputer='median')
+Y_all_imp,imputer = dream.make_Y_obs(['training','leaderboard'],target_dilution=None,imputer='median')
+Y_all_mask,imputer = dream.make_Y_obs(['training','leaderboard'],target_dilution=None,imputer='mask')

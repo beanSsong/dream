@@ -5,6 +5,64 @@ from sklearn.cross_validation import ShuffleSplit,cross_val_score
 import dream
 import scoring
 
+# Use random forest regression to fit the entire training data set, one descriptor set at a time.  
+def rfc_final(X,Y_imp,Y_mask,
+              max_features,min_samples_leaf,max_depth,
+              Y_test=None,n_estimators=100):
+    def rfc_maker(max_features=max_features,n_estimators=n_estimators,
+                  max_depth=max_depth,min_samples_leaf=min_samples_leaf):
+        return RandomForestRegressor(n_estimators=n_estimators,
+                                     max_features=max_features,
+                                     min_samples_leaf=min_samples_leaf,
+                                     max_depth=max_depth,
+                                     n_jobs=-1,
+                                     oob_score=True)
+        
+    rfcs = {}
+    for kind in ['int','ple','dec']:
+        rfcs[kind] = {} 
+        for moment in ['mean','sigma']:
+            rfcs[kind][moment] = rfc_maker(n_estimators=n_estimators,
+                                max_features=max_features[kind][moment],
+                                min_samples_leaf=min_samples_leaf[kind][moment],
+                                max_depth=max_depth[kind][moment])
+
+    for kind in ['int','ple','dec']:
+        for moment in ['mean','sigma']:
+            if '%s_%s' % (kind,moment) in []:
+                rfc[kind][moment].fit(X,Y_imp)
+            else:
+                rfc[kind][moment].fit(X,Y_mask)
+    
+    predictions = {}
+    for kind in ['int','ple','dec']:
+        predictions[kind] = {}
+        for moment in ['mean','sigma']:
+            predictions[kind][moment] = rfcs[kind][moment].oob_prediction_
+    
+    predicted = predictions['int']['mean'].copy()
+    for i,moment in enumerate(['mean','sigma']):
+        predicted[:,(0+21*i)] = predictions['int'][moment][:,(0+21*i)]
+        predicted[:,(1+21*i)] = predictions['ple'][moment][:(1+21*i)]
+        predicted[:,(2+21*i):(21+21*i)] = predictions['dec'][moment][:,(2+21*i):(21+21*i)]
+
+    observed = Y_test
+    score = scoring.score2(predicted,observed)
+    rs = {}
+    predictions = {}
+    for kind in ['int','ple','dec']:
+        rs[kind] = {}
+        for moment in ['mean','sigma']:
+            rs[kind][moment] = scoring.r2(kind,moment,predicted,observed)
+    
+    print("For subchallenge 2:")
+    print("\tScore = %.2f" % score)
+    for kind in ['int','ple','dec']:
+        for moment in ['mean','sigma']: 
+            print("\t%s_%s = %.3f" % (kind,moment,rs[kind][moment]))
+    
+    return (rfcs,score,rs)
+
 def rfc_(X_train,Y_train,X_test_int,X_test_other,Y_test,
          max_features=1500,n_estimators=1000,max_depth=None,min_samples_leaf=1):
     print(max_features)
@@ -43,49 +101,78 @@ def rfc_(X_train,Y_train,X_test_int,X_test_other,Y_test,
     return rfc,scores['train'],scores['test']
 
 # Show that random forest regression also works really well out of sample.  
-def rfc_cv(X,Y,Y_test=None,n_splits=10,
-           max_features=1500,n_estimators=100,min_samples_leaf=1,rfc=True):
+def rfc_cv(X,Y_imp,Y_mask,Y_test=None,n_splits=10,n_estimators=100,
+           max_features=1500,min_samples_leaf=1,max_depth=None,rfc=True):
+    if Y_mask is None:
+        use_Y_mask = False
+        Y_mask = Y_imp
+    else:
+        use_Y_mask = True
     if Y_test is None:
-        Y_test = Y
+        Y_test = Y_mask
     if rfc:
-        rfc = RandomForestRegressor(max_features=max_features,
+        rfc_imp = RandomForestRegressor(max_features=max_features,
                                 n_estimators=n_estimators,
-                                max_depth=None,
+                                max_depth=max_depth,
+                                min_samples_leaf=min_samples_leaf,
+                                oob_score=False,n_jobs=-1,random_state=0)
+        rfc_mask = RandomForestRegressor(max_features=max_features,
+                                n_estimators=n_estimators,
+                                max_depth=max_depth,
                                 min_samples_leaf=min_samples_leaf,
                                 oob_score=False,n_jobs=-1,random_state=0)
     else:
-        rfc = ExtraTreesRegressor(max_features=max_features,
+        rfc_imp = ExtraTreesRegressor(max_features=max_features,
                                 n_estimators=n_estimators,
-                                max_depth=None,
+                                max_depth=max_depth,
+                                min_samples_leaf=min_samples_leaf,
+                                  oob_score=False,n_jobs=-1,random_state=0)
+        rfc_mask = ExtraTreesRegressor(max_features=max_features,
+                                n_estimators=n_estimators,
+                                max_depth=max_depth,
                                 min_samples_leaf=min_samples_leaf,
                                   oob_score=False,n_jobs=-1,random_state=0)
     test_size = 0.2
-    shuffle_split = ShuffleSplit(len(Y),n_splits,test_size=test_size)
-    test_size *= len(Y)
+    shuffle_split = ShuffleSplit(len(Y_imp),n_splits,test_size=test_size)
+    test_size *= len(Y_imp)
     rs = {'int':{'mean':[],'sigma':[],'trans':[]},'ple':{'mean':[],'sigma':[]},'dec':{'mean':[],'sigma':[]}}
     scores = []
     for train_index,test_index in shuffle_split:
-        rfc.fit(X[train_index],Y[train_index])
-        predicted = rfc.predict(X[test_index])
+        rfc_imp.fit(X[train_index],Y_imp[train_index])
+        predicted_imp = rfc_imp.predict(X[test_index])
+        if use_Y_mask:
+            rfc_mask.fit(X[train_index],Y_mask[train_index])
+            predicted_mask = rfc_mask.predict(X[test_index])
+        else:
+            predicted_mask = predicted_imp
         observed = Y_test[test_index]
-        score = scoring.score2(predicted,observed)
-        scores.append(score)
+        rs_ = {'int':{},'ple':{},'dec':{}}
         for kind1 in ['int','ple','dec']:
             for kind2 in ['mean','sigma']:
                 if kind2 in rs[kind1]:
-                    rs[kind1][kind2].append(scoring.r2(kind1,kind2,predicted,observed))
-        rs['int']['trans'].append(scoring.r2(None,None,f_int(predicted[:,0]),observed[:,21]))
+                    if '%s_%s' % (kind1,kind2) in ['int_mean','ple_mean','dec_mean']:
+                        r_ = scoring.r2(kind1,kind2,predicted_imp,observed)
+                    else:
+                        r_ = scoring.r2(kind1,kind2,predicted_mask,observed)
+                    rs_[kind1][kind2] = r_
+                    rs[kind1][kind2].append(r_)
+        score = scoring.rs2score2(rs_)
+        scores.append(score)
+        rs['int']['trans'].append(scoring.r2(None,None,f_int(predicted_imp[:,0]),observed[:,21]))
     for kind1 in ['int','ple','dec']:
         for kind2 in ['mean','sigma','trans']:
             if kind2 in rs[kind1]:
                 rs[kind1][kind2] = {'mean':np.mean(rs[kind1][kind2]),'sem':np.std(rs[kind1][kind2])/np.sqrt(n_splits)}
     scores = {'mean':np.mean(scores),'sem':np.std(scores)/np.sqrt(n_splits)}
-    print("For subchallenge 2, using cross-validation with at most %d features:" % max_features)
+    print("For subchallenge 2, using cross-validation with:")
+    print("\tat most %s features:" % max_features)
+    print("\tat least %s samples per leaf:" % min_samples_leaf)
+    print("\tat most %s depth:" % max_depth)
     print("\tscore = %.2f+/- %.2f" % (scores['mean'],scores['sem']))
     for kind2 in ['mean','sigma','trans']:
         for kind1 in ['int','ple','dec']:
             if kind2 in rs[kind1]:
-                print("\t%s_%s = %.2f+/- %.2f" % (kind1,kind2,rs[kind1][kind2]['mean'],rs[kind1][kind2]['sem']))
+                print("\t%s_%s = %.3f+/- %.3f" % (kind1,kind2,rs[kind1][kind2]['mean'],rs[kind1][kind2]['sem']))
         
     return scores,rs
 

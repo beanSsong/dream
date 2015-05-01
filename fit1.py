@@ -4,6 +4,73 @@ from sklearn.cross_validation import ShuffleSplit,cross_val_score
 
 import scoring
 
+def rfc_final(X,Y_imp,Y_mask,
+              max_features,min_samples_leaf,max_depth,
+              Y_test=None,regularize=[0.7,0.35,0.7],n_estimators=100):
+    def rfc_maker(max_features=max_features,n_estimators=n_estimators,
+                  max_depth=max_depth,min_samples_leaf=min_samples_leaf):
+        return RandomForestRegressor(n_estimators=n_estimators,
+                                     max_features=max_features,
+                                     min_samples_leaf=min_samples_leaf,
+                                     max_depth=max_depth,
+                                     n_jobs=-1,
+                                     oob_score=True)
+        
+    kinds = ['int','ple','dec']
+    rfcs = {}
+    for kind in kinds:
+        rfcs[kind] = {} 
+        for subject in range(1,50):
+            rfcs[kind][subject] = rfc_maker(n_estimators=n_estimators,
+                                max_features=max_features[kind][moment],
+                                min_samples_leaf=min_samples_leaf[kind][moment],
+                                max_depth=max_depth[kind][moment])
+
+    for subject in range(1,50):
+        for kind in kinds:
+            if kind in []:
+                rfc[kind][subject].fit(X,Y_imp)
+            else:
+                rfc[kind][subject].fit(X,Y_mask)
+    
+    predictions = {}
+    for kind in kinds:
+        predictions[kind] = {}
+        for subject in range(1,50):
+            predictions[kind][subject] = rfcs[kind][subject].oob_prediction_
+
+    predicted = predictions['int'].copy()
+    for subject in range(1,50):
+        predicted[i][:,0] = predictions['int'][i][:,0]
+        predicted[i][:,1] = predictions['ple'][i][:,1]
+        predicted[i][:,2:] = predictions['dec'][i][:,2:]
+
+    # Regularize:  
+    predicted_stack = np.dstack(predicted)
+    print(predicted_stack.shape)
+    predicted_mean = predicted_stack.mean(axis=2,keepdims=True)
+    predicted_reg = {kind:predicted.copy() for kind in kinds}
+    for i,kind in enumerate(kinds):
+        predicted_reg[kind] = regularize[i]*predicted_mean + (1-regularize[i])*predicted_stack
+    predicted_stack[:,0,:] = predicted_reg['int'][:,0,:]
+    predicted_stack[:,1,:] = predicted_reg['ple'][:,1,:]
+    predicted_stack[:,2:,:] = predicted_reg['dec'][:,2:,:]
+    predicted = predicted_stack
+
+    observed = Y_test
+    score = scoring.score(predicted,observed)
+    rs = {}
+    predictions = {}
+    for kind in ['int','ple','dec']:
+        rs[kind] = scoring.r(kind,predicted,observed)
+    
+    print("For subchallenge 1:")
+    print("\tScore = %.2f" % score)
+    for kind in kinds:
+        print("\t%s = %.3f" % (kind,rs[kinds]))
+    
+    return (rfcs,score,rs)
+
 def rfc_(X_train,Y_train,X_test_int,X_test_other,Y_test,max_features=1500,n_estimators=1000,max_depth=None,min_samples_leaf=1):
     print(max_features)
     def rfc_maker():

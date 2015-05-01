@@ -141,6 +141,13 @@ def score_summary2(predicted,observed,mask=False):
                 (score, r_int_mean, r_ple_mean, r_dec_mean, \
                         r_int_sigma,r_ple_sigma,r_dec_sigma)
 
+def rs2score2(rs):
+    z = 0
+    for kind in ['int','ple','dec']:
+        for moment in ['mean','sigma']:
+            z += rs[kind][moment]/SIGMAS2[kind+'_'+moment]
+    return z/6.0
+
 def z2(kind,moment,predicted,observed): 
     sigma = SIGMAS2[kind+'_'+moment]
     shuffled_r = 0#r2(kind,predicted,shuffled)
