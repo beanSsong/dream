@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.ensemble import RandomForestRegressor,ExtraTreesRegressor
 from sklearn.cross_validation import ShuffleSplit,cross_val_score
 
+import dream
 import scoring
 
 def rfc_(X_train,Y_train,X_test_int,X_test_other,Y_test,max_features=1500,n_estimators=1000,max_depth=None,min_samples_leaf=1):
@@ -41,7 +42,9 @@ def rfc_(X_train,Y_train,X_test_int,X_test_other,Y_test,max_features=1500,n_esti
     return rfc,scores['train'],scores['test']
 
 # Show that random forest regression also works really well out of sample.  
-def rfc_cv(X,Y,n_splits=10,max_features=1500,n_estimators=100,min_samples_leaf=1,rfc=True):
+def rfc_cv(X,Y,Y_test=None,n_splits=10,max_features=1500,n_estimators=100,min_samples_leaf=1,rfc=True):
+    if Y_test is None:
+        Y_test = Y
     if rfc:
         rfc = RandomForestRegressor(max_features=max_features,
                                 n_estimators=n_estimators,
@@ -62,7 +65,7 @@ def rfc_cv(X,Y,n_splits=10,max_features=1500,n_estimators=100,min_samples_leaf=1
     for train_index,test_index in shuffle_split:
         rfc.fit(X[train_index],Y[train_index])
         predicted = rfc.predict(X[test_index])
-        observed = Y[test_index]
+        observed = Y_test[test_index]
         score = scoring.score2(predicted,observed)
         scores.append(score)
         for kind1 in ['int','ple','dec']:
@@ -111,3 +114,11 @@ def scan(X_train,Y_train,X_test_int,X_test_other,Y_test,max_features=None,n_esti
     #for n,train,test in zip(ns,scores_train,scores_test):
     #    print("max_features = %d, train = %.2f, test = %.2f" % (int(n),train,test))
     #return rfcs_max_features
+
+def mask_vs_impute(X):
+    print(2)
+    Y_median,imputer = dream.make_Y_obs(['training','leaderboard'],target_dilution=None,imputer='median')
+    Y_mask,imputer = dream.make_Y_obs(['training','leaderboard'],target_dilution=None,imputer='mask')
+    r2s_median = rfc_cv(X,Y_median['mean_std'],Y_test=Y_mask['mean_std'],n_splits=20,max_features=1500,n_estimators=200,min_samples_leaf=1,rfc=True)
+    r2s_mask = rfc_cv(X,Y_mask['mean_std'],n_splits=20,max_features=1500,n_estimators=200,min_samples_leaf=1,rfc=True)
+    return (r2s_median,r2s_mask)
