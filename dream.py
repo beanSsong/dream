@@ -3,6 +3,7 @@ import types
 from collections import OrderedDict
 from sklearn.preprocessing import Imputer
 
+from __init__ import *
 import loading
 
 #############################
@@ -10,46 +11,50 @@ import loading
 #############################
 
 def make_Y_obs(kinds, target_dilution=None, imputer=None):
+    if target_dilution == 'gold':
+        # For actual testing, use 1/1000 dilution for intensity and
+        # high dilution for everything else.  
+        Y,imputer = make_Y_obs(kinds,target_dilution='high',imputer=imputer)
+        intensity,imputer = make_Y_obs(kinds,target_dilution=-3,imputer=imputer)
+        Y['mean_std'][:,0] = intensity['mean_std'][:,0]
+        Y['mean_std'][:,21] = intensity['mean_std'][:,21]
+        for i in range(1,50):
+            Y['subject'][i][:,0] = intensity['subject'][i][:,0]
+        return Y,imputer
     if type(kinds) is str:
         kinds = [kinds]
     if imputer in [None,'median']:
         imputer = Imputer(missing_values=np.nan,strategy='median',axis=0)
-    print("Getting CIDs and dilutions...")
-    CID_dilutions = []
     Y = {}
     for kind in kinds:
         assert kind in ['training','leaderboard','testset'], \
             "No such kind %s" % kind
-        print("Getting CIDs and dilutions for %s data" % kind)
-        CID_dilutions += loading.get_CID_dilutions(kind,
-                                                   target_dilution=target_dilution)
-        if kind == 'training':
-            _, perceptual_data = loading.load_perceptual_data()
-            print("Getting basic perceptual data...")
-            matrices = get_perceptual_matrices(perceptual_data,
-                                               target_dilution=target_dilution)
-            print("Flattening into vectors...")
-            v_mean = get_perceptual_vectors(matrices, imputer=imputer, 
-                                               statistic='mean', 
-                                               target_dilution=target_dilution)
-            v_std = get_perceptual_vectors(matrices, imputer=imputer, 
-                                              statistic='std', 
-                                              target_dilution=target_dilution)
-            v_subject = get_perceptual_vectors(matrices, imputer='mask', 
-                                                  statistic=None, 
-                                                  target_dilution=target_dilution)
-            print("Assembling into matrices...")
-            Y[kind] = build_Y_obs(v_mean,v_std,v_subject)
-        elif kind == 'leaderboard':
-            Y[kind] = loading.load_leaderboard_perceptual_data(target_dilution=target_dilution)
-
+        if kind == 'leaderboard':
+            loading.format_leaderboard_perceptual_data()
+        _, perceptual_data = loading.load_perceptual_data(kind)
+        print("Getting basic perceptual data...")
+        matrices = get_perceptual_matrices(perceptual_data,
+                                            target_dilution=target_dilution)
+        print("Flattening into vectors...")
+        v_mean = get_perceptual_vectors(matrices, imputer=imputer, 
+                                        statistic='mean', 
+                                        target_dilution=target_dilution)
+        v_std = get_perceptual_vectors(matrices, imputer=imputer, 
+                                        statistic='std', 
+                                        target_dilution=target_dilution)
+        v_subject = get_perceptual_vectors(matrices, imputer=imputer, 
+                                           statistic=None, 
+                                           target_dilution=target_dilution)
+        print("Assembling into matrices...")
+        Y[kind] = build_Y_obs(v_mean,v_std,v_subject)
+    
     print("Combining Y matrices...")
     Y_ = {'subject':{}}
     Y_['mean_std'] = np.vstack([Y[kind]['mean_std'] for kind in 
                                 ['training','leaderboard','testset'] \
                                 if kind in kinds])
     for subject in range(1,50):
-        Y_['subject'][subject] = np.vstack([Y[kind]['subject'][subject] for kind in 
+        Y_['subject'][subject] = np.ma.vstack([Y[kind]['subject'][subject] for kind in 
                                 ['training','leaderboard','testset'] \
                                 if kind in kinds])
     print("The Y['mean_std'] matrix now has shape (%dx%d) " % Y_['mean_std'].shape +\
@@ -108,7 +113,7 @@ def get_perceptual_vectors(perceptual_matrices, imputer=None, statistic='mean',
             mask[np.where(np.isnan(matrix))] = 1
             matrix = np.ma.array(matrix,mask=mask)
         elif imputer:
-            matrix = imputer.fit_transform(matrix) # Impute the NaNs.  
+            matrix = imputer.fit_transform(matrix) # Impute the NaNs.
         if statistic == 'mean':
             perceptual_vectors[CID_dilution] = matrix.mean(axis=0)
         elif statistic == 'std':
@@ -116,23 +121,21 @@ def get_perceptual_vectors(perceptual_matrices, imputer=None, statistic='mean',
         elif statistic is None:
             perceptual_vectors[CID_dilution] = {}
             for subject in range(1,matrix.shape[0]+1):        
-                perceptual_vectors[CID_dilution][subject] = matrix[subject-1]
+                perceptual_vectors[CID_dilution][subject] = matrix[subject-1,:]
         else:
             raise Exception("Statistic '%s' not recognized" % statistic)
     return perceptual_vectors
 
 def build_Y_obs(mean_vectors,std_vectors,subject_vectors):
     Y = {'subject':{}}
-    for kind,vectors in [('mean',mean_vectors),
-                         ('std',std_vectors)]:
-        Y[kind] = np.vstack([vectors[CID] for CID in sorted(vectors)])
+    mean = np.vstack([mean_vectors[CID] for CID in sorted(mean_vectors,key=lambda x:[int(_) for _ in x.split('_')])])
+    std = np.vstack([std_vectors[CID] for CID in sorted(std_vectors,key=lambda x:[int(_) for _ in x.split('_')])])
     for subject in range(1,50):
-        Y['subject'][subject] = np.vstack([subject_vectors[CID][subject]
-                                               for CID in sorted(subject_vectors)])
+        Y['subject'][subject] = np.ma.vstack([subject_vectors[CID][subject]
+                                               for CID in sorted(subject_vectors,key=lambda x:[int(_) for _ in x.split('_')])])
     print("Y_obs['subject'] contains %d matrices each with shape (%dx%d) (molecules by perceptual descriptors)" \
       % (len(Y['subject']),Y['subject'][1].shape[0],Y['subject'][1].shape[1]))
-    print("The Y_obs['mean'] matrix has shape (%dx%d) (molecules by perceptual descriptors)" % Y['mean'].shape)
-    Y['mean_std'] = np.hstack((Y['mean'],Y['std']))
+    Y['mean_std'] = np.hstack((mean,std))
     print("The Y_obs['mean_std'] matrix has shape (%dx%d) (molecules by 2 x perceptual descriptors)" % Y['mean_std'].shape)
     return Y
 
@@ -196,11 +199,17 @@ def get_molecular_vectors(molecular_data,CID_dilutions):
     return molecular_vectors
 
 def add_dilutions(molecular_vectors,CID_dilutions,dilution=None):
-    if dilution in [None,'low','high']:
+    if 1:#dilution in [None,'low','high']:
         molecular_vectors_ = {}
         for CID_dilution in CID_dilutions:
-            CID,dilution,high = CID_dilution.split('_')
-            molecular_vectors_[CID_dilution] = np.concatenate((molecular_vectors[int(CID)],[int(dilution),int(high)]))
+            CID,dilution,high = [int(_) for _ in CID_dilution.split('_')]
+            if high==1:
+                mean_dilution = dilution - 1 # e.g. -3 was high so other was -5 so mean is -4.  
+            elif high==0:
+                mean_dilution = dilution + 1 # e.g. -3 was low so other was -1 so mean is -2. 
+            else:
+                raise ValueError("High not 0 or 1")
+            molecular_vectors_[CID_dilution] = np.concatenate((molecular_vectors[CID],[dilution,mean_dilution]))
         molecular_vectors = molecular_vectors_
         print('There are now %d molecular vectors of length %d, one for each molecule and dilution' \
             % (len(molecular_vectors),len(molecular_vectors[CID_dilution])))
@@ -208,7 +217,7 @@ def add_dilutions(molecular_vectors,CID_dilutions,dilution=None):
 
 # Build the X_obs matrix out of molecular descriptors.  
 def build_X(molecular_vectors):
-    X = np.vstack([molecular_vectors[key] for key in sorted(molecular_vectors)]) # Key could be CID or CID_dilution.  
+    X = np.vstack([molecular_vectors[key] for key in sorted(molecular_vectors,key=lambda x:[int(_) for _ in x.split('_')])]) # Key could be CID or CID_dilution.  
     print("The X matrix has shape (%dx%d) (molecules by molecular descriptors)" % X.shape)
     return X
 
@@ -245,7 +254,7 @@ def purge2_X(X,good_molecular_descriptors=None):
 
 def normalize_X(X,means=None,stds=None,target_dilution=None):#,logs=None):
     num_cols = X.shape[1]
-    if target_dilution in [None,'low','high']:
+    if 1:#target_dilution in [None,'low','high']:
         num_cols -= 2
     X[:,:num_cols] = np.sign(X[:,:num_cols])*np.abs(X[:,:num_cols])**(1.0/3)
     if means is None:
