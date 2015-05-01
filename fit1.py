@@ -4,17 +4,28 @@ from sklearn.cross_validation import ShuffleSplit,cross_val_score
 
 import scoring
 
-def rfc_final(X,Y_imp,Y_mask,
-              max_features,min_samples_leaf,max_depth,
+def rfc_final(X,Y,
+              max_features,min_samples_leaf,max_depth,et,
               Y_test=None,regularize=[0.7,0.35,0.7],n_estimators=100):
-    def rfc_maker(max_features=max_features,n_estimators=n_estimators,
-                  max_depth=max_depth,min_samples_leaf=min_samples_leaf):
-        return RandomForestRegressor(n_estimators=n_estimators,
+    
+    if Y_test is None:
+        Y_test = Y
+    
+    def rfc_maker(n_estimators=n_estimators,max_features=max_features,
+                  min_samples_leaf=min_samples_leaf,max_depth=max_depth,et=False):
+        if not et: 
+            return RandomForestRegressor(n_estimators=n_estimators,
                                      max_features=max_features,
                                      min_samples_leaf=min_samples_leaf,
                                      max_depth=max_depth,
-                                     n_jobs=-1,
-                                     oob_score=True)
+                                     oob_score=True,
+                                     n_jobs=-1,random_state=0)
+        else:
+            return ExtraTreesRegressor(n_estimators=n_estimators,
+                                max_features=max_features,
+                                min_samples_leaf=min_samples_leaf,
+                                max_depth=max_depth,
+                                n_jobs=-1,random_state=0)
         
     kinds = ['int','ple','dec']
     rfcs = {}
@@ -22,28 +33,30 @@ def rfc_final(X,Y_imp,Y_mask,
         rfcs[kind] = {} 
         for subject in range(1,50):
             rfcs[kind][subject] = rfc_maker(n_estimators=n_estimators,
-                                max_features=max_features[kind][moment],
-                                min_samples_leaf=min_samples_leaf[kind][moment],
-                                max_depth=max_depth[kind][moment])
+                                max_features=max_features[kind],
+                                min_samples_leaf=min_samples_leaf[kind],
+                                max_depth=max_depth[kind],
+                                et=et[kind])
 
     for subject in range(1,50):
         for kind in kinds:
-            if kind in []:
-                rfc[kind][subject].fit(X,Y_imp)
-            else:
-                rfc[kind][subject].fit(X,Y_mask)
+            rfcs[kind][subject].fit(X,Y[subject])
     
     predictions = {}
     for kind in kinds:
         predictions[kind] = {}
         for subject in range(1,50):
-            predictions[kind][subject] = rfcs[kind][subject].oob_prediction_
+            if et[kind]:
+                # Check in-sample fit because there isn't any alternative. 
+                predictions[kind][subject] = rfcs[kind][subject].predict(X)
+            else:
+                predictions[kind][subject] = rfcs[kind][subject].oob_prediction_
 
     predicted = predictions['int'].copy()
     for subject in range(1,50):
-        predicted[i][:,0] = predictions['int'][i][:,0]
-        predicted[i][:,1] = predictions['ple'][i][:,1]
-        predicted[i][:,2:] = predictions['dec'][i][:,2:]
+        predicted[subject][:,0] = predictions['int'][subject][:,0]
+        predicted[subject][:,1] = predictions['ple'][subject][:,1]
+        predicted[subject][:,2:] = predictions['dec'][subject][:,2:]
 
     # Regularize:  
     predicted_stack = np.dstack(predicted)
@@ -124,7 +137,8 @@ def rfc_(X_train,Y_train,X_test_int,X_test_other,Y_test,max_features=1500,n_esti
 
 # Show that random forest regrssion also works really well out of sample.  
 from sklearn.cross_validation import ShuffleSplit,cross_val_score
-def rfc_cv(X,Y,n_splits=5,max_features=1000,n_estimators=15,min_samples_leaf=1,regularize=[0.7,0.35,0.7]):
+def rfc_cv(X,Y,n_splits=5,n_estimators=15,
+           max_features=1000,min_samples_leaf=1,max_depth=None,regularize=[0.7,0.35,0.7]):
     test_size = 0.2
     n_molecules = X.shape[0]
     shuffle_split = ShuffleSplit(n_molecules,n_splits,test_size=test_size)
@@ -132,10 +146,10 @@ def rfc_cv(X,Y,n_splits=5,max_features=1000,n_estimators=15,min_samples_leaf=1,r
     rfcs = {}
     n_subjects = 49
     for subject in range(1,n_subjects+1):
-        rfc = RandomForestRegressor(max_features=max_features,
-                                    n_estimators=n_estimators,
+        rfc = RandomForestRegressor(n_estimators=n_estimators,
+                                    max_features=max_features,
                                     min_samples_leaf=min_samples_leaf,
-                                    max_depth=None,
+                                    max_depth=max_depth,
                                     oob_score=False,
                                     n_jobs=-1,
                                     random_state=0)

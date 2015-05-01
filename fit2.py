@@ -7,16 +7,26 @@ import scoring
 
 # Use random forest regression to fit the entire training data set, one descriptor set at a time.  
 def rfc_final(X,Y_imp,Y_mask,
-              max_features,min_samples_leaf,max_depth,
+              max_features,min_samples_leaf,max_depth,et,use_mask,
               Y_test=None,n_estimators=100):
-    def rfc_maker(max_features=max_features,n_estimators=n_estimators,
-                  max_depth=max_depth,min_samples_leaf=min_samples_leaf):
-        return RandomForestRegressor(n_estimators=n_estimators,
+    
+    if Y_test is None:
+        Y_test = Y_mask
+    def rfc_maker(n_estimators=n_estimators,max_features=max_features,
+                  min_samples_leaf=min_samples_leaf,max_depth=max_depth,et=False):
+        if not et: 
+            return RandomForestRegressor(n_estimators=n_estimators,
                                      max_features=max_features,
                                      min_samples_leaf=min_samples_leaf,
                                      max_depth=max_depth,
-                                     n_jobs=-1,
-                                     oob_score=True)
+                                     oob_score=True,
+                                     n_jobs=-1,random_state=0)
+        else:
+            return ExtraTreesRegressor(n_estimators=n_estimators,
+                                max_features=max_features,
+                                min_samples_leaf=min_samples_leaf,
+                                max_depth=max_depth,
+                                n_jobs=-1,random_state=0)
         
     rfcs = {}
     for kind in ['int','ple','dec']:
@@ -25,25 +35,29 @@ def rfc_final(X,Y_imp,Y_mask,
             rfcs[kind][moment] = rfc_maker(n_estimators=n_estimators,
                                 max_features=max_features[kind][moment],
                                 min_samples_leaf=min_samples_leaf[kind][moment],
-                                max_depth=max_depth[kind][moment])
+                                max_depth=max_depth[kind][moment],
+                                et=et[kind][moment])
 
     for kind in ['int','ple','dec']:
         for moment in ['mean','sigma']:
-            if '%s_%s' % (kind,moment) in []:
-                rfc[kind][moment].fit(X,Y_imp)
+            if use_mask[kind][moment]:
+                rfcs[kind][moment].fit(X,Y_mask)
             else:
-                rfc[kind][moment].fit(X,Y_mask)
+                rfcs[kind][moment].fit(X,Y_imp)
     
     predictions = {}
     for kind in ['int','ple','dec']:
         predictions[kind] = {}
         for moment in ['mean','sigma']:
-            predictions[kind][moment] = rfcs[kind][moment].oob_prediction_
-    
+            if et[kind][moment]:
+                # Check in-sample fit because there isn't any alternative.  
+                predictions[kind][moment] = rfcs[kind][moment].predict(X)
+            else:
+                predictions[kind][moment] = rfcs[kind][moment].oob_prediction_
     predicted = predictions['int']['mean'].copy()
     for i,moment in enumerate(['mean','sigma']):
         predicted[:,(0+21*i)] = predictions['int'][moment][:,(0+21*i)]
-        predicted[:,(1+21*i)] = predictions['ple'][moment][:(1+21*i)]
+        predicted[:,(1+21*i)] = predictions['ple'][moment][:,(1+21*i)]
         predicted[:,(2+21*i):(21+21*i)] = predictions['dec'][moment][:,(2+21*i):(21+21*i)]
 
     observed = Y_test
