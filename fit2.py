@@ -42,19 +42,19 @@ def rfc_(X_train,Y_train,X_test_int,X_test_other,Y_test,max_features=1500,n_esti
     return rfc,scores['train'],scores['test']
 
 # Show that random forest regression also works really well out of sample.  
-def rfc_cv(X,Y,Y_test=None,n_splits=10,max_features=1500,n_estimators=100,min_samples_leaf=1,rfc=True):
+def rfc_cv(X,Y,Y_test=None,n_splits=10,max_features=1500,n_estimators=100,min_samples_leaf=1,max_depth=None,rfc=True):
     if Y_test is None:
         Y_test = Y
     if rfc:
         rfc = RandomForestRegressor(max_features=max_features,
                                 n_estimators=n_estimators,
-                                max_depth=None,
+                                max_depth=max_depth,
                                 min_samples_leaf=min_samples_leaf,
                                 oob_score=False,n_jobs=-1,random_state=0)
     else:
         rfc = ExtraTreesRegressor(max_features=max_features,
                                 n_estimators=n_estimators,
-                                max_depth=None,
+                                max_depth=max_depth,
                                 min_samples_leaf=min_samples_leaf,
                                   oob_score=False,n_jobs=-1,random_state=0)
     test_size = 0.2
@@ -83,7 +83,7 @@ def rfc_cv(X,Y,Y_test=None,n_splits=10,max_features=1500,n_estimators=100,min_sa
     for kind2 in ['mean','sigma','trans']:
         for kind1 in ['int','ple','dec']:
             if kind2 in rs[kind1]:
-                print("\t%s_%s = %.2f+/- %.2f" % (kind1,kind2,rs[kind1][kind2]['mean'],rs[kind1][kind2]['sem']))
+                print("\t%s_%s = %.3f+/- %.3f" % (kind1,kind2,rs[kind1][kind2]['mean'],rs[kind1][kind2]['sem']))
         
     return scores,rs
 
