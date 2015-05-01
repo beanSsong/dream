@@ -145,7 +145,6 @@ def load_leaderboard_perceptual_data(target_dilution=None):
             z = np.ma.array(z,mask=mask)
             y_mean = z.mean(axis=2)
             y_std = z.std(axis=2,ddof=1)
-        print(Y['mean_std'].shape,len(CIDs))
         for CID in CID_ranks:
             if CID_ranks[CID] == 0:
                 row = CIDs.index(CID)
@@ -283,7 +282,7 @@ def write_prediction_files(Y,kind,subchallenge,name):
                 writer.writerow([CID,descriptor,value,sigma])
         f.close()
 
-def make_prediction_files(rfcs,X_int,X_other,kind,subchallenge,regularize=[0.7,0.7,0.7],name=None):
+def make_prediction_files(rfcs,X_int,X_other,target,subchallenge,trans_weight=0.5,regularize=[0.7,0.35,0.6],name=None):
     if len(regularize)==1 and type(regularize)==list:
         regularize = regularize*3
     if name is None:
@@ -313,12 +312,21 @@ def make_prediction_files(rfcs,X_int,X_other,kind,subchallenge,regularize=[0.7,0
         del Y['subject']['mean']
 
     if subchallenge == 2:
-        y = rfcs[2].predict(X_other)
-        y_int = rfcs[2].predict(X_int)
-        y[:,0] = y_int[:,0]
-        y[:,21] = y_int[:,21]
+        kinds = ['int','ple','dec']
+        moments = ['mean','sigma']
+        ys = {kind:{} for kind in kinds}
+        for kind in ['int','ple','dec']:
+            X = X_int if kind=='int' else X_other
+            for moment in ['mean','sigma']:
+                ys[kind][moment] = rfcs[kind][moment].predict(X)
+        y = ys['int']['mean'].copy()
+        y[:,1] = ys['ple']['mean'][:,1]
+        y[:,2:21] = ys['ple']['mean'][:,2:21]
+        y[:,21] = ys['ple']['mean'][:,21]
+        y[:,22] = ys['ple']['mean'][:,22]
+        y[:,23:] = ys['ple']['mean'][:,23:]
         Y['mean_std'] = y
-
-    write_prediction_files(Y,kind,subchallenge,name)
+        
+    write_prediction_files(Y,target,subchallenge,name)
     return Y
 
