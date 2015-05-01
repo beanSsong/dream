@@ -5,6 +5,7 @@ import time
 import numpy as np
 
 from __init__ import *
+import scoring
 
 def load_perceptual_data(kind):
     if kind == 'training':
@@ -282,7 +283,7 @@ def write_prediction_files(Y,kind,subchallenge,name):
                 writer.writerow([CID,descriptor,value,sigma])
         f.close()
 
-def make_prediction_files(rfcs,X_int,X_other,target,subchallenge,trans_weight=0.5,regularize=[0.7,0.35,0.6],name=None):
+def make_prediction_files(rfcs,X_int,X_other,target,subchallenge,Y_test=None,write=True,trans_weight=0.5,regularize=[0.7,0.35,0.6],name=None):
     if len(regularize)==1 and type(regularize)==list:
         regularize = regularize*3
     if name is None:
@@ -304,8 +305,12 @@ def make_prediction_files(rfcs,X_int,X_other,target,subchallenge,trans_weight=0.
             Y['subject'][subject] = ys['int'][:,:,subject-1]
             Y['subject'][subject][:,1] = ys['ple'][:,1,subject-1]
             Y['subject'][subject][:,2:] = ys['dec'][:,2:,subject-1]
-        
+        if Y_test:
+            print(scoring.score_summary(Y['subject'],Y_test['subject']))
+            
     if subchallenge == 2:
+        def f_int(x, k0=0.718, k1=1.08):
+            return 100*(k0*(x/100)**(k1*0.5) - k0*(x/100)**(k1*2))
         kinds = ['int','ple','dec']
         moments = ['mean','sigma']
         ys = {kind:{} for kind in kinds}
@@ -316,11 +321,16 @@ def make_prediction_files(rfcs,X_int,X_other,target,subchallenge,trans_weight=0.
         y = ys['int']['mean'].copy()
         y[:,1] = ys['ple']['mean'][:,1]
         y[:,2:21] = ys['dec']['mean'][:,2:21]
-        y[:,21] = ys['int']['sigma'][:,21]
+        trans = f_int(ys['int']['mean'][:,0])
+        regular = ys['int']['sigma'][:,21]
+        y[:,21] = trans_weight*trans + (1-trans_weight)*regular
         y[:,22] = ys['ple']['sigma'][:,22]
         y[:,23:] = ys['dec']['sigma'][:,23:]
         Y['mean_std'] = y
-        
-    write_prediction_files(Y,target,subchallenge,name)
+        if Y_test:
+            print(scoring.score_summary2(Y['mean_std'],Y_test['mean_std'],mask=True))
+            
+    if write:
+        write_prediction_files(Y,target,subchallenge,name)
     return Y
 
