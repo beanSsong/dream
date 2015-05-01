@@ -290,27 +290,21 @@ def make_prediction_files(rfcs,X_int,X_other,target,subchallenge,trans_weight=0.
     Y = {'subject':{'mean':0}}
     
     if subchallenge == 1:
-        y_list = [rfcs[1][subject].predict(X_other) \
-                  for subject in range(1,NUM_SUBJECTS+1)]
-        Y['subject']['mean'] = np.mean(np.dstack(y_list),axis=2)
-        for subject in range(1,NUM_SUBJECTS+1):
-            # dec
-            Y['subject'][subject] = (1-regularize[2])*rfcs[1][subject].predict(X_other) \
-                                      + regularize[2]*Y['subject']['mean']
-            # ple
-            Y['subject'][subject][:,1] = (1-regularize[1])*rfcs[1][subject].predict(X_other)[:,1] \
-                                      + regularize[1]*Y['subject']['mean'][:,1]
-        del Y['subject']['mean']
-
-        y_list = [rfcs[1][subject].predict(X_int) \
-                  for subject in range(1,NUM_SUBJECTS+1)]
-        Y['subject']['mean'] = np.mean(np.dstack(y_list),axis=2)
-        for subject in range(1,NUM_SUBJECTS+1):
-            # int
-            Y['subject'][subject][:,0] = (1-regularize[0])*rfcs[1][subject].predict(X_int)[:,0] \
-                                      + regularize[0]*Y['subject']['mean'][:,0]
-        del Y['subject']['mean']
-
+        kinds = ['int','ple','dec']
+        ys = {kind:{} for kind in kinds}
+        for i,kind in enumerate(kinds):
+            X = X_int if kind=='int' else X_other
+            for subject in range(1,50):
+                ys[kind][subject] = rfcs[kind][subject].predict(X)
+            ys_list = [ys[kind][subject] for subject in range(1,50)]
+            ys[kind] = np.dstack(ys_list)
+            ys_kind_mean = ys[kind].mean(axis=2,keepdims=True)
+            ys[kind] = regularize[i]*ys_kind_mean + (1-regularize[i])*ys[kind]
+        for subject in range(1,50):
+            Y['subject'][subject] = ys['int'][:,:,subject-1]
+            Y['subject'][subject][:,1] = ys['ple'][:,1,subject-1]
+            Y['subject'][subject][:,2:] = ys['dec'][:,2:,subject-1]
+        
     if subchallenge == 2:
         kinds = ['int','ple','dec']
         moments = ['mean','sigma']
@@ -321,10 +315,10 @@ def make_prediction_files(rfcs,X_int,X_other,target,subchallenge,trans_weight=0.
                 ys[kind][moment] = rfcs[kind][moment].predict(X)
         y = ys['int']['mean'].copy()
         y[:,1] = ys['ple']['mean'][:,1]
-        y[:,2:21] = ys['ple']['mean'][:,2:21]
-        y[:,21] = ys['ple']['mean'][:,21]
-        y[:,22] = ys['ple']['mean'][:,22]
-        y[:,23:] = ys['ple']['mean'][:,23:]
+        y[:,2:21] = ys['dec']['mean'][:,2:21]
+        y[:,21] = ys['int']['sigma'][:,21]
+        y[:,22] = ys['ple']['sigma'][:,22]
+        y[:,23:] = ys['dec']['sigma'][:,23:]
         Y['mean_std'] = y
         
     write_prediction_files(Y,target,subchallenge,name)
