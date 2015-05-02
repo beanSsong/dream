@@ -1,6 +1,7 @@
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor,ExtraTreesRegressor
 from sklearn.cross_validation import ShuffleSplit,cross_val_score
+from sklearn.linear_model import Lasso
 
 import scoring
 
@@ -139,7 +140,6 @@ def rfc_(X_train,Y_train,X_test_int,X_test_other,Y_test,max_features=1500,n_esti
     return rfcs,scores['train'],scores['test']
 
 # Show that random forest regrssion also works really well out of sample.  
-from sklearn.cross_validation import ShuffleSplit,cross_val_score
 def rfc_cv(X,Y,n_splits=5,n_estimators=15,
            max_features=1000,min_samples_leaf=1,max_depth=None,regularize=[0.7,0.35,0.7]):
     test_size = 0.2
@@ -195,4 +195,91 @@ def rfc_cv(X,Y,n_splits=5,n_estimators=15,
         print("\t%s = %.2f+/- %.2f" % (kind,rs[kind]['mean'],rs[kind]['sem']))
             
     return scores,rs
+
+# Using only subject fits.  
+def subject_regularize(rfcs,X_int,X_other,Y,oob=False,regularize=[0.75,0.3,0.65]):
+    if len(regularize)==1:
+        regularize = regularize*3
+    observed_ = []
+    predicted_ = []
+    for subject in range(1,50):
+        observed = Y['subject'][subject]
+        rfc = rfcs[1][subject]
+        if oob:
+            predicted = rfc.oob_prediction_
+        else:
+            predicted = rfc.predict(X_other)
+            predicted_int = rfc.predict(X_int)
+            predicted[:,0] = predicted_int[:,0]
+        observed_.append(observed)
+        predicted_.append(predicted)
+    predicted = np.dstack(predicted_)
+    observed = np.ma.dstack(observed_)
+    predicted_mean = np.mean(predicted,axis=2,keepdims=True)
+    predicted_std = np.std(predicted,axis=2,keepdims=True)
+    predicted_mean_std = np.hstack((predicted_mean,predicted_std)).squeeze()
+    predicted_int = regularize[0]*(predicted_mean) + (1-regularize[0])*predicted
+    predicted_ple = regularize[1]*(predicted_mean) + (1-regularize[1])*predicted
+    predicted_dec = regularize[2]*(predicted_mean) + (1-regularize[2])*predicted
+    predicted = regularize[0]*(predicted_mean) + (1-regularize[0])*predicted
+    r_int = scoring.r('int',predicted_int,observed)
+    r_ple = scoring.r('ple',predicted_ple,observed)
+    r_dec = scoring.r('dec',predicted_dec,observed)
+    score1_ = scoring.score(predicted,observed,n_subjects=49)
+    score1 = scoring.rs2score(r_int,r_ple,r_dec)
+    #print(score1_,score1)
+    print("For subchallenge %d, score = %.3f (%.3f,%.3f,%.3f)" % (1,score1,r_int,r_ple,r_dec))
+    score2 = scoring.score2(predicted_mean_std,Y['mean_std'])
+    r_int_mean = scoring.r2('int','mean',predicted_mean_std,Y['mean_std'])
+    r_ple_mean = scoring.r2('ple','mean',predicted_mean_std,Y['mean_std'])
+    r_dec_mean = scoring.r2('dec','mean',predicted_mean_std,Y['mean_std'])
+    r_int_sigma = scoring.r2('int','sigma',predicted_mean_std,Y['mean_std'])
+    r_ple_sigma = scoring.r2('ple','sigma',predicted_mean_std,Y['mean_std'])
+    r_dec_sigma = scoring.r2('dec','sigma',predicted_mean_std,Y['mean_std'])
+    print("For subchallenge %d, score = %.2f (%.2f,%.2f,%.2f,%.2f,%.2f,%.2f)" % \
+         (2,score2,r_int_mean,r_ple_mean,r_dec_mean,r_int_sigma,r_ple_sigma,r_dec_sigma))
+    return (r_int,r_ple,r_dec,r_int_mean,r_ple_mean,r_dec_mean,r_int_sigma,r_ple_sigma,r_dec_sigma)
+
+def lasso_(X_train,Y_train,X_test,Y_test,alpha=0.1,regularize=[0.7,0.7,0.7]):
+    if len(regularize)==1:
+        regularize = regularize*3
+    def lasso_maker():
+        return Lasso(alpha=alpha)
+    n_subjects = 49
+    predicted_train = []
+    observed_train = []
+    predicted_test = []
+    observed_test = []
+    lassos = {subject:lasso_maker() for subject in range(1,n_subjects+1)}
+    for subject in range(1,n_subjects+1):
+        observed = Y_train[subject][:,1:2]
+        lasso = lassos[subject]
+        lasso.fit(X_train,observed)
+        predicted = lasso.predict(X_train)[:,np.newaxis]
+        observed_train.append(observed)
+        predicted_train.append(predicted)
+
+        observed = Y_test[subject][:,1:2]
+        predicted = lasso.predict(X_test)[:,np.newaxis]
+        observed_test.append(observed)
+        predicted_test.append(predicted)
+    scores = {}
+    for phase,predicted_,observed_ in [('train',predicted_train,observed_train),('test',predicted_test,observed_test)]:
+        predicted = np.dstack(predicted_)
+        observed = np.ma.dstack(observed_)
+        predicted_mean = np.mean(predicted,axis=2,keepdims=True)
+        #predicted_int = regularize[0]*(predicted_mean) + (1-regularize[0])*predicted
+        predicted_ple = regularize[1]*(predicted_mean) + (1-regularize[1])*predicted
+        #predicted_dec = regularize[2]*(predicted_mean) + (1-regularize[2])*predicted
+        #score1_ = scoring.score(predicted_int,observed,n_subjects=n_subjects)
+        #r_int = scoring.r('int',predicted,observed)
+        #r_ple = scoring.r('ple',predicted,observed)
+        r_ple = scoring.r(None,predicted_ple,observed)
+        r2_ple = scoring.r2(None,None,predicted_ple.mean(axis=2),observed.mean(axis=2))
+        #r_dec = scoring.r('dec',predicted,observed)
+        #score1 = scoring.rs2score(r_int,r_ple,r_dec)
+        print("For subchallenge 1, %s phase, score = %.2f" % (phase,r_ple))
+        print("For subchallenge 2, %s phase, score = %.2f" % (phase,r2_ple))
+        scores[phase] = (r_ple,r2_ple)
+    return lassos,scores['train'],scores['test']
 
