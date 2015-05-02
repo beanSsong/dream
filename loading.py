@@ -283,11 +283,12 @@ def write_prediction_files(Y,kind,subchallenge,name):
                 writer.writerow([CID,descriptor,value,sigma])
         f.close()
 
-def make_prediction_files(rfcs,X_int,X_other,target,subchallenge,Y_test=None,write=True,trans_weight=0.5,regularize=[0.7,0.35,0.6],name=None):
+def make_prediction_files(rfcs,X_int,X_other,target,subchallenge,Y_test=None,write=True,trans_weight=[1.0,0,0.5],regularize=[0.7,0.7,0.7],name=None):
     if len(regularize)==1 and type(regularize)==list:
         regularize = regularize*3
     if name is None:
         name = '%d' % time.time()
+
     Y = {'subject':{'mean':0}}
     
     if subchallenge == 1:
@@ -306,10 +307,19 @@ def make_prediction_files(rfcs,X_int,X_other,target,subchallenge,Y_test=None,wri
             Y['subject'][subject][:,1] = ys['ple'][:,1,subject-1]
             Y['subject'][subject][:,2:] = ys['dec'][:,2:,subject-1]
         if Y_test:
-            print(scoring.score_summary(Y['subject'],Y_test['subject']))
+            predicted = ys['int'].copy()
+            observed = ys['int'].copy()
+            for subject in range(1,50):
+                predicted[:,:,subject-1] = Y['subject'][subject]
+                observed[:,:,subject-1] = Y_test['subject'][subject]
+            print(scoring.score_summary(predicted,observed))
             
     if subchallenge == 2:
         def f_int(x, k0=0.718, k1=1.08):
+            return 100*(k0*(x/100)**(k1*0.5) - k0*(x/100)**(k1*2))
+        def f_ple(x):
+            pass
+        def f_dec(x, k0=0.8425, k1=1.13):
             return 100*(k0*(x/100)**(k1*0.5) - k0*(x/100)**(k1*2))
         kinds = ['int','ple','dec']
         moments = ['mean','sigma']
@@ -321,16 +331,23 @@ def make_prediction_files(rfcs,X_int,X_other,target,subchallenge,Y_test=None,wri
         y = ys['int']['mean'].copy()
         y[:,1] = ys['ple']['mean'][:,1]
         y[:,2:21] = ys['dec']['mean'][:,2:21]
+        
         trans = f_int(ys['int']['mean'][:,0])
         regular = ys['int']['sigma'][:,21]
-        y[:,21] = trans_weight*trans + (1-trans_weight)*regular
+        y[:,21] = trans_weight[0]*trans + (1-trans_weight[0])*regular
+        
         y[:,22] = ys['ple']['sigma'][:,22]
-        y[:,23:] = ys['dec']['sigma'][:,23:]
+        
+        trans = f_dec(ys['dec']['mean'][:,2:21])
+        regular = ys['dec']['sigma'][:,23:]
+        y[:,23:] = trans_weight[2]*trans + (1-trans_weight[2])*regular
+        
         Y['mean_std'] = y
         if Y_test:
             print(scoring.score_summary2(Y['mean_std'],Y_test['mean_std'],mask=True))
             
     if write:
         write_prediction_files(Y,target,subchallenge,name)
+        print('Wrote to file with suffix "%s"' % name)
     return Y
 

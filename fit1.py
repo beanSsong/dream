@@ -6,7 +6,7 @@ import scoring
 
 def rfc_final(X,Y,
               max_features,min_samples_leaf,max_depth,et,
-              Y_test=None,regularize=[0.7,0.35,0.7],n_estimators=100):
+              Y_test=None,regularize=[0.7,0.7,0.7],n_estimators=100):
     
     if Y_test is None:
         Y_test = Y
