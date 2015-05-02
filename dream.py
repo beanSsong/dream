@@ -175,7 +175,7 @@ def make_X(molecular_data,kinds,target_dilution=None,
     print("Building a matrix...")
     X = build_X(molecular_vectors)
     print("Purging data with too many NaNs...")
-    X,good1 = purge1_X(X,threshold=PURGE_THRESHOLD,good_molecular_descriptors=good1)
+    X,good1 = purge1_X(X,threshold=NAN_PURGE_THRESHOLD,good_molecular_descriptors=good1)
     print("Imputing remaining NaN data...")
     X,imputer = impute_X(X)
     print("Purging data that is still bad, if any...")
