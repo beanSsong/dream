@@ -8,7 +8,7 @@ import scoring
 # Use random forest regression to fit the entire training data set, one descriptor set at a time.  
 def rfc_final(X,Y_imp,Y_mask,
               max_features,min_samples_leaf,max_depth,et,use_mask,
-              Y_test=None,n_estimators=100):
+              Y_test=None,n_estimators=100,seed=0):
     
     if Y_test is None:
         Y_test = Y_mask
@@ -20,13 +20,13 @@ def rfc_final(X,Y_imp,Y_mask,
                                      min_samples_leaf=min_samples_leaf,
                                      max_depth=max_depth,
                                      oob_score=True,
-                                     n_jobs=-1,random_state=0)
+                                     n_jobs=-1,random_state=seed)
         else:
             return ExtraTreesRegressor(n_estimators=n_estimators,
                                 max_features=max_features,
                                 min_samples_leaf=min_samples_leaf,
                                 max_depth=max_depth,
-                                n_jobs=-1,random_state=0)
+                                n_jobs=-1,random_state=seed)
         
     rfcs = {}
     for kind in ['int','ple','dec']:

@@ -6,7 +6,7 @@ import scoring
 
 def rfc_final(X,Y,
               max_features,min_samples_leaf,max_depth,et,
-              Y_test=None,regularize=[0.7,0.7,0.7],n_estimators=100):
+              Y_test=None,regularize=[0.7,0.7,0.7],n_estimators=100,seed=0):
     
     if Y_test is None:
         Y_test = Y
@@ -19,13 +19,13 @@ def rfc_final(X,Y,
                                      min_samples_leaf=min_samples_leaf,
                                      max_depth=max_depth,
                                      oob_score=True,
-                                     n_jobs=-1,random_state=0)
+                                     n_jobs=-1,random_state=seed)
         else:
             return ExtraTreesRegressor(n_estimators=n_estimators,
                                 max_features=max_features,
                                 min_samples_leaf=min_samples_leaf,
                                 max_depth=max_depth,
-                                n_jobs=-1,random_state=0)
+                                n_jobs=-1,random_state=seed)
         
     kinds = ['int','ple','dec']
     rfcs = {}
