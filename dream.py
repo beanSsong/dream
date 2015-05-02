@@ -175,7 +175,7 @@ def make_X(molecular_data,kinds,target_dilution=None,
     print("Building a matrix...")
     X = build_X(molecular_vectors)
     print("Purging data with too many NaNs...")
-    X,good1 = purge1_X(X,good_molecular_descriptors=good1)
+    X,good1 = purge1_X(X,threshold=PURGE_THRESHOLD,good_molecular_descriptors=good1)
     print("Imputing remaining NaN data...")
     X,imputer = impute_X(X)
     print("Purging data that is still bad, if any...")
@@ -221,10 +221,9 @@ def build_X(molecular_vectors):
     print("The X matrix has shape (%dx%d) (molecules by molecular descriptors)" % X.shape)
     return X
 
-def purge1_X(X,good_molecular_descriptors=None):
+def purge1_X(X,threshold=0.25,good_molecular_descriptors=None):
     if good_molecular_descriptors is None:
         good_molecular_descriptors = range(X.shape[1])
-        threshold = 0.25
         # Which columns of X (which molecular descriptors) have NaNs for at least 'threshold' fraction of the molecules?  
         nan_molecular_descriptors = np.where(np.isnan(X).sum(axis=0) > X.shape[0]*threshold)[0] # At least 'threshold' NaNs.  
         # Purge these bad descriptors from the X matrix.  

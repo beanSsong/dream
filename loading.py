@@ -289,7 +289,7 @@ def make_prediction_files(rfcs,X_int,X_other,target,subchallenge,Y_test=None,wri
     if name is None:
         name = '%d' % time.time()
 
-    Y = {'subject':{'mean':0}}
+    Y = {'subject':{}}
     
     if subchallenge == 1:
         kinds = ['int','ple','dec']

@@ -63,7 +63,8 @@ X_testset_int.shape
 X_all,good1,good2,means,stds,imputer = dream.make_X(molecular_data,["training","leaderboard"],good1=good1,good2=good2,means=means,stds=stds)
 X_all.shape
 
-Y_training,imputer = dream.make_Y_obs('training',target_dilution=None,imputer='median')
+Y_training_imp,imputer = dream.make_Y_obs('training',target_dilution=None,imputer='median')
+Y_training_mask,imputer = dream.make_Y_obs('training',target_dilution=None,imputer='mask')
 
 Y_leaderboard,imputer = dream.make_Y_obs('leaderboard',target_dilution='gold',imputer='mask')
 
