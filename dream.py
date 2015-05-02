@@ -47,7 +47,7 @@ def make_Y_obs(kinds, target_dilution=None, imputer=None):
                                            target_dilution=target_dilution)
         print("Assembling into matrices...")
         Y[kind] = build_Y_obs(v_mean,v_std,v_subject)
-    
+
     print("Combining Y matrices...")
     Y_ = {'subject':{}}
     Y_['mean_std'] = np.vstack([Y[kind]['mean_std'] for kind in 
@@ -175,7 +175,7 @@ def make_X(molecular_data,kinds,target_dilution=None,threshold=None,
     print("Adding dilution data...")
     molecular_vectors = add_dilutions(molecular_vectors,CID_dilutions)
     print("Building a matrix...")
-    X = build_X(molecular_vectors)
+    X = build_X(molecular_vectors,CID_dilutions)
     print("Purging data with too many NaNs...")
     X,good1 = purge1_X(X,threshold=NAN_PURGE_THRESHOLD,good_molecular_descriptors=good1)
     print("Imputing remaining NaN data...")
@@ -218,8 +218,8 @@ def add_dilutions(molecular_vectors,CID_dilutions,dilution=None):
     return molecular_vectors
 
 # Build the X_obs matrix out of molecular descriptors.  
-def build_X(molecular_vectors):
-    X = np.vstack([molecular_vectors[key] for key in sorted(molecular_vectors,key=lambda x:[int(_) for _ in x.split('_')])]) # Key could be CID or CID_dilution.  
+def build_X(molecular_vectors,CID_dilutions):
+    X = np.vstack([molecular_vectors[key] for key in CID_dilutions])#sorted(molecular_vectors,key=lambda x:[int(_) for _ in x.split('_')])]) # Key could be CID or CID_dilution.  
     print("The X matrix has shape (%dx%d) (molecules by molecular descriptors)" % X.shape)
     return X
 
