@@ -158,10 +158,12 @@ def nan_summary(perceptual_obs_matrices):
 # Molecular processing (X) #
 ############################
 
-def make_X(molecular_data,kinds,target_dilution=None,
+def make_X(molecular_data,kinds,target_dilution=None,threshold=None,
            good1=None,good2=None,means=None,stds=None):
     if type(kinds) is str:
         kinds = [kinds]
+    if threshold is None:
+        threshold = NAN_PURGE_THRESHOLD
     print("Getting CIDs and dilutions...")
     CID_dilutions = []
     for kind in kinds:
