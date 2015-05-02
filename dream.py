@@ -64,11 +64,13 @@ def make_Y_obs(kinds, target_dilution=None, imputer=None):
           "molecules by perceptual descriptors, one for each subject")
     return Y_,imputer
 
-def get_perceptual_matrices(perceptual_data,target_dilution=None):
+def get_perceptual_matrices(perceptual_data,target_dilution=None,use_replicates=True):
     perceptual_matrices = {}
+    counts = {}
     CIDs = []
     for row in perceptual_data:
         CID = int(row[0])
+        replicate = int(row[2])
         CIDs.append(CID)
         dilution = loading.dilution2magnitude(row[4])
         if target_dilution is None:
@@ -84,9 +86,17 @@ def get_perceptual_matrices(perceptual_data,target_dilution=None):
         key = '%d_%g_%d' % (CID,dilution,high)
         if key not in perceptual_matrices:
             perceptual_matrices[key] = np.ones((49,21))*np.NaN
+            counts[key] = np.zeros(49)
         data = np.array([np.nan if _=='NaN' else int(_) for _ in row[6:]])
         subject = int(row[5])
-        perceptual_matrices[key][subject-1,:] = data
+        if replicate:
+            if use_replicates:
+                perceptual_matrices[key][subject-1,:] *= counts[key][subject-1]
+                perceptual_matrices[key][subject-1,:] += data
+                counts[key][subject-1] += 1
+                perceptual_matrices[key][subject-1,:] /= counts[key][subject-1]
+        else:
+            perceptual_matrices[key][subject-1,:] = data
                 
     return perceptual_matrices
 
